@@ -3,6 +3,7 @@ import time
 import datetime
 from db_commands import DBWrapper
 from contextlib import asynccontextmanager
+import time 
 import os 
 
 
@@ -10,8 +11,57 @@ import os
 
 APP_STATE = os.environ.get('APP_STATE')
 PROD = APP_STATE == 'PROD'
-app = FastAPI()
+DB_PATH = f'db_file_{APP_STATE}.db'
 
+def timer(func):
+    def wrapper(*args, **kwargs):
+        print('starting')
+        print('*'*88)
+        start = time.time()
+        func(*args, **kwargs)
+        length = time.time() - start
+        print(f"Took {length} time")
+    return wrapper
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Initializes DB
+    """
+    print("Application starting up...")
+
+    
+    new_db = not os.path.exists(DB_PATH)
+
+    db = DBWrapper(DB_PATH)
+    if new_db: 
+        print("current dir")
+        print(os.listdir('Badatz-task'))
+        print("Creating db")
+        db.create_word_table()
+        
+        with open("Badatz-task/words_dataset.txt",'r') as f: 
+            word_list = [word.strip() for word in f.readlines()]
+        
+        items_list = []
+        for word in word_list: 
+            sorted_word = "".join(sorted(list(word)))
+            # letters = list(word)
+            # letters.sort()
+            # sorted_word = "".join(letters)
+
+            items_list.append((word, sorted_word))
+        db.add_words_to_table(items_list)
+    db.disconnect()
+    yield  # The application will run after this line
+    # TODO shutdown db
+    print("Application shutting down...")
+
+
+app = FastAPI(lifespan=lifespan)
+
+
+@timer
 @app.get("/")
 async def root(): 
     print("starting")
@@ -20,26 +70,14 @@ async def root():
     t = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return {"message": f"Hello World {t}"}
 
+# TODO: create timer 
 @app.get("/api/v1/similar")
 async def get_similar_word(word=None):
-    return {"was": f"the word is {word}"}
+    sorted_word = "".join(sorted(list(word)))
+    db = DBWrapper(DB_PATH)
+    return db.get_matching_words(sorted_word)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """
-    Handles startup and shutdown events for the application.
-    """
-    print("Application starting up...")
-    db_path = f'db_file_{APP_STATE}.db'
-    new_db = os.path.exists(db_path)
-    db = DBWrapper(db_path)
-    if new_db: 
-        print("Creating db")
-        db.create_word_table()
-    yield  # The application will run after this line
-    # TODO shutdown db
-    print("Application shutting down...")
 
 
     
