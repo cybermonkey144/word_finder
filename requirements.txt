@@ -1,8 +1,2 @@
-# # uvicorn
-# gunicorn
-# uvicorn[standard]
-# db-sqlite3
-# fastapi
 fastapi[standard]
 uvicorn[standard]
-sqlmodel

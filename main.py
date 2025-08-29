@@ -83,7 +83,6 @@ def add_word(word: Annotated[str, Body(embed=True)]
 @app.get("/api/v1/stats")
 async def get_statistics():
     """Gets server statistics"""
-    asyncio.sleep(4)
     db = DBWrapper(DB_PATH)
     number_of_words = db.get_number_of_words()
     stats_similar_endpoint = db.endpoint_request_count("/api/v1/similar")
