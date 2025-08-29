@@ -1,98 +1,98 @@
-from fastapi import FastAPI
-import time 
-import datetime
-from db_commands import DBWrapper
+import asyncio
 from contextlib import asynccontextmanager
-import time 
+from fastapi import FastAPI, Body, HTTPException
+from fastapi.responses import JSONResponse, Response
 import os 
+import time 
+from typing import Annotated
 
+from db_commands import DBWrapper
+from env import APP_STATE, DB_PATH
+from utils import add_stats, register_new_word
 
-# TODO check what this page is really supposed to look like 
-
-APP_STATE = os.environ.get('APP_STATE')
-PROD = APP_STATE == 'PROD'
-DB_PATH = f'db_file_{APP_STATE}.db'
-
-def timer(func):
-    def wrapper(*args, **kwargs):
-        print('starting')
-        print('*'*88)
-        start = time.time()
-        func(*args, **kwargs)
-        length = time.time() - start
-        print(f"Took {length} time")
-    return wrapper
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Initializes DB
+    Initializes DB if required 
     """
     print("Application starting up...")
-
     
+    # Check whether we need to initialize a new DB
     new_db = not os.path.exists(DB_PATH)
 
-    db = DBWrapper(DB_PATH)
     if new_db: 
-        print("current dir")
-        print(os.listdir('Badatz-task'))
-        print("Creating db")
-        db.create_word_table()
+        db = DBWrapper(DB_PATH)
+        # Creating db 
+        db.create_tables()
         
+        # Migrate .txt conent to DB
         with open("Badatz-task/words_dataset.txt",'r') as f: 
             word_list = [word.strip() for word in f.readlines()]
         
+        # Each word has a 'sorted' version which will be a more efficient way to find 'similar' words 
         items_list = []
+        
         for word in word_list: 
             sorted_word = "".join(sorted(list(word)))
-            # letters = list(word)
-            # letters.sort()
-            # sorted_word = "".join(letters)
-
             items_list.append((word, sorted_word))
+        
         db.add_words_to_table(items_list)
-    db.disconnect()
-    yield  # The application will run after this line
-    # TODO shutdown db
-    print("Application shutting down...")
+        db.disconnect()
+
+    else: 
+        pass
+        # Consider adding DB healthcheck
+    yield 
 
 
 app = FastAPI(lifespan=lifespan)
 
 
-@timer
-@app.get("/")
-async def root(): 
-    print("starting")
-    time.sleep(8)
-    print("finishing")
-    t = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    return {"message": f"Hello World {t}"}
-
-# TODO: create timer 
 @app.get("/api/v1/similar")
 async def get_similar_word(word=None):
-    sorted_word = "".join(sorted(list(word)))
+    """Will find words with same letters"""
+    try: 
+        start = time.time()
+        
+        db = DBWrapper(DB_PATH)
+
+        sorted_word = "".join(sorted(list(word)))
+        similar_words = db.get_matching_words(sorted_word)
+        add_stats('/api/v1/similar', start, time.time())
+        
+        return JSONResponse(content=similar_words, status_code=200)
+    except: 
+        raise HTTPException(status_code=400)
+
+
+@app.post("/api/v1/add-word")
+def add_word(word: Annotated[str, Body(embed=True)]
+):
+    """Adds new word to DB"""
+    try: 
+        start = time.time()
+        register_new_word(word)
+        add_stats('/api/v1/add-word', start, time.time())
+        print("84")
+        return Response(status_code=200)
+    except: 
+        raise HTTPException(status_code=400)
+
+
+@app.get("/api/v1/stats")
+async def get_statistics():
+    """Gets server statistics"""
+    asyncio.sleep(4)
     db = DBWrapper(DB_PATH)
-    return db.get_matching_words(sorted_word)
+    number_of_words = db.get_number_of_words()
+    stats_similar_endpoint = db.endpoint_request_count("/api/v1/similar")
+    average_processing_time = db.get_average_stats()
 
+    content = {
+        "avgProcessingTimeMs": average_processing_time,
+        "totalWords": number_of_words, 
+        "totalRequests": stats_similar_endpoint
+    }
+    return JSONResponse(content = content, status_code=200)
 
-
-
-    
-
-
-# GET   /api/v1/similar?word=stressed
-# .lower() the word - turn into lowercase 
-# Get the 'id' of our word - which is our word after it's sorted 
-# Get the entry from the db of that id - if exists
-
-# Post  /api/v1/add-word
-# Get the 'id' of our word - use the function from GET 
-# Create an entry in the db of the id with the word, if it exists add it to the list - otherwise create the entry 
-
-# For the above functions get stats of how long each run took - maybe create decorator for this 
-
-# GET /api/v1/stats
-# TODO
